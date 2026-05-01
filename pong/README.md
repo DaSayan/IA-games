@@ -1,4 +1,15 @@
-# 📊 Global summary
+# Presentation
+
+A pong game, only with HTML and Javascript, and no framework at all !
+
+![image](pong.png)
+
+3 games modes :
+- 1 player VS AI. 4 difficulty modes
+- 1 player VS 2 player
+- Demo mode with 2 AI playing together
+
+# 📊 Global summary of AI usage
 
 **Created with** Copilot + Claude Haiku 4.5
 
