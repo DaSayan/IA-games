@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pong Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1e1e2e 0%, #2d1b69 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        #gameContainer {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            display: block;
+            background: linear-gradient(135deg, #0f0f1e 0%, #1a0f3e 100%);
+            border: 4px solid #00ff88;
+            border-radius: 8px;
+            box-shadow: 0 0 40px rgba(0, 255, 136, 0.5), 0 0 80px rgba(100, 50, 255, 0.3);
+            cursor: none;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            border-radius: 8px;
+        }
+
+        #overlay.hidden {
+            display: none;
+        }
+
+        #overlayContent {
+            text-align: center;
+            color: #00ff88;
+            font-size: 24px;
+        }
+
+        #overlayContent h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px rgba(0, 255, 136, 0.8);
+        }
+
+        #overlayContent p {
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: #aaa;
+        }
+
+        #overlayContent button {
+            margin-top: 30px;
+            margin-left: 10px;
+            margin-right: 10px;
+            padding: 15px 40px;
+            font-size: 18px;
+            background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+            border: none;
+            border-radius: 5px;
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+        }
+
+        #overlayContent button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(0, 255, 136, 0.8);
+        }
+
+        #scoreDisplay {
+            color: #00ff88;
+            font-size: 14px;
+            margin-top: 10px;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="overlay">
+            <div id="overlayContent">
+                <h1>🎮 PONG 🎮</h1>
+                <p>Joue contre l'IA</p>
+                <p id="scoreDisplay"></p>
+                <p>Premier à 10 points gagne!</p>
+                <button id="startBtn">COMMENCER</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const overlay = document.getElementById('overlay');
+        const overlayContent = document.getElementById('overlayContent');
+        const startBtn = document.getElementById('startBtn');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+
+        // Game constants
+        const PADDLE_HEIGHT = 100;
+        const PADDLE_WIDTH = 10;
+        const BALL_SIZE = 8;
+        const INITIAL_BALL_SPEED = 5;
+        const MAX_BALL_SPEED = 10;
+        const PADDLE_SPEED = 6;
+        const WIN_SCORE = 10;
+
+        // Game state
+        let gameRunning = false;
+        let gameWon = false;
+        let gamePaused = false;
+        let gameMode = 'select'; // 'select', 'vsai', 'pvp', 'demo'
+        let isPvPMode = false;
+        let isDemoMode = false;
+        let aiDifficulty = 2; // 1=Facile, 2=Moyen, 3=Difficile, 4=Imbattable
+
+        // Ball object
+        const ball = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            vx: INITIAL_BALL_SPEED,
+            vy: INITIAL_BALL_SPEED * 0.5,
+            size: BALL_SIZE,
+
+            reset() {
+                this.x = canvas.width / 2;
+                this.y = canvas.height / 2;
+                const angle = (Math.random() - 0.5) * Math.PI * 0.5;
+                const speed = INITIAL_BALL_SPEED * getSpeedMultiplier();
+                this.vx = Math.cos(angle) * speed * (Math.random() > 0.5 ? 1 : -1);
+                this.vy = Math.sin(angle) * speed;
+            },
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Top and bottom collision
+                if (this.y - this.size <= 0 || this.y + this.size >= canvas.height) {
+                    this.vy = -this.vy;
+                    this.y = Math.max(this.size, Math.min(canvas.height - this.size, this.y));
+                }
+            },
+
+            draw() {
+                // Glow effect
+                ctx.fillStyle = 'rgba(0, 255, 136, 0.2)';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size + 8, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Ball
+                const gradient = ctx.createRadialGradient(this.x - 2, this.y - 2, 0, this.x, this.y, this.size);
+                gradient.addColorStop(0, '#00ff88');
+                gradient.addColorStop(1, '#00cc6a');
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        };
+
+        // Player paddle object
+        const player = {
+            x: 10,
+            y: canvas.height / 2 - PADDLE_HEIGHT / 2,
+            width: PADDLE_WIDTH,
+            height: PADDLE_HEIGHT,
+            vy: 0,
+
+            update() {
+                this.y += this.vy;
+                // Constrain to canvas
+                this.y = Math.max(0, Math.min(canvas.height - this.height, this.y));
+            },
+
+            draw() {
+                // Shadow
+                ctx.fillStyle = 'rgba(0, 255, 136, 0.2)';
+                ctx.fillRect(this.x + 2, this.y + 2, this.width, this.height);
+
+                // Paddle with gradient
+                const gradient = ctx.createLinearGradient(this.x, this.y, this.x + this.width, this.y);
+                gradient.addColorStop(0, '#ff006e');
+                gradient.addColorStop(1, '#00ff88');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+
+                // Highlight
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(this.x, this.y, this.width, this.height);
+            }
+        };
+
+        // AI paddle object
+        const ai = {
+            x: canvas.width - PADDLE_WIDTH - 10,
+            y: canvas.height / 2 - PADDLE_HEIGHT / 2,
+            width: PADDLE_WIDTH,
+            height: PADDLE_HEIGHT,
+            difficulty: 0.6, // Base difficulty multiplier
+            reactionThreshold: 15, // Threshold for reaction
+            shouldAnticipate: false, // For level 4
+            vy: 0,
+
+            draw() {
+                // Shadow
+                ctx.fillStyle = 'rgba(255, 0, 110, 0.2)';
+                ctx.fillRect(this.x - 2, this.y + 2, this.width, this.height);
+
+                // Paddle with gradient
+                const gradient = ctx.createLinearGradient(this.x, this.y, this.x + this.width, this.y);
+                gradient.addColorStop(0, '#00ff88');
+                gradient.addColorStop(1, '#ff006e');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+
+                // Highlight
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(this.x, this.y, this.width, this.height);
+            },
+
+            update() {
+                this.y += this.vy;
+                // Constrain to canvas
+                this.y = Math.max(0, Math.min(canvas.height - this.height, this.y));
+            }
+        };
+
+        // Score
+        let playerScore = 0;
+        let aiScore = 0;
+
+        // Helper function for demo mode speed multiplier
+        function getSpeedMultiplier() {
+            return isDemoMode ? 2 : 1;
+        }
+
+        // Input handling
+        const keys = {};
+        window.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+            if (e.key === 'Escape' && gameMode === 'playing') {
+                togglePause();
+            }
+        });
+        window.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+
+        function updatePlayerInput() {
+            player.vy = 0;
+            if (!isDemoMode) {
+                if (keys['e'] || keys['E']) {
+                    player.vy = -PADDLE_SPEED * getSpeedMultiplier();
+                }
+                if (keys['x'] || keys['X']) {
+                    player.vy = PADDLE_SPEED * getSpeedMultiplier();
+                }
+            }
+        }
+
+        function setAIDifficulty(level) {
+            aiDifficulty = level;
+            switch(level) {
+                case 1: // Easy
+                    ai.difficulty = 0.3;
+                    ai.reactionThreshold = 35;
+                    ai.shouldAnticipate = false;
+                    break;
+                case 2: // Medium (default)
+                    ai.difficulty = 0.6;
+                    ai.reactionThreshold = 15;
+                    ai.shouldAnticipate = false;
+                    break;
+                case 3: // Hard
+                    ai.difficulty = 1.0;
+                    ai.reactionThreshold = 5;
+                    ai.shouldAnticipate = false;
+                    break;
+                case 4: // Unbeatable
+                    ai.difficulty = 1.0;
+                    ai.reactionThreshold = 2;
+                    ai.shouldAnticipate = true;
+                    break;
+            }
+        }
+
+        function updateAIInput() {
+            // AI based on difficulty level
+            const paddle_center = ai.y + ai.height / 2;
+            let target_y = ball.y;
+
+            // For unbeatable level: predict future ball position
+            if (ai.shouldAnticipate) {
+                // Estimate where the ball will be when it reaches the AI paddle
+                if (ball.vx > 0) { // Ball moving towards AI
+                    const distance = ai.x - ball.x;
+                    const time = distance / Math.abs(ball.vx);
+                    target_y = ball.y + ball.vy * time;
+                    // Clamp to canvas bounds
+                    target_y = Math.max(0, Math.min(canvas.height, target_y));
+                }
+            }
+
+            const diff = target_y - paddle_center;
+
+            if (Math.abs(diff) > ai.reactionThreshold) {
+                ai.vy = Math.sign(diff) * PADDLE_SPEED * ai.difficulty * getSpeedMultiplier();
+            } else {
+                ai.vy = 0;
+            }
+        }
+
+        function updatePlayerAsAI() {
+            // Demo mode: AI controls player paddle (left side)
+            const paddle_center = player.y + player.height / 2;
+            let target_y = ball.y;
+
+            // For unbeatable level: predict future ball position
+            if (ai.shouldAnticipate) {
+                // Estimate where the ball will be when it reaches the player paddle
+                if (ball.vx < 0) { // Ball moving towards player
+                    const distance = ball.x - player.x;
+                    const time = distance / Math.abs(ball.vx);
+                    target_y = ball.y + ball.vy * time;
+                    // Clamp to canvas bounds
+                    target_y = Math.max(0, Math.min(canvas.height, target_y));
+                }
+            }
+
+            const diff = target_y - paddle_center;
+
+            if (Math.abs(diff) > ai.reactionThreshold) {
+                player.vy = Math.sign(diff) * PADDLE_SPEED * ai.difficulty * getSpeedMultiplier();
+            } else {
+                player.vy = 0;
+            }
+        }
+
+        function updatePlayer2Input() {
+            // PvP: Arrow keys control the right paddle (ai object)
+            ai.vy = 0;
+            if (keys['ArrowUp']) {
+                ai.vy = -PADDLE_SPEED * getSpeedMultiplier();
+            }
+            if (keys['ArrowDown']) {
+                ai.vy = PADDLE_SPEED * getSpeedMultiplier();
+            }
+        }
+
+        // Collision detection
+        function checkCollision(paddle) {
+            if (
+                ball.x - ball.size < paddle.x + paddle.width &&
+                ball.x + ball.size > paddle.x &&
+                ball.y - ball.size < paddle.y + paddle.height &&
+                ball.y + ball.size > paddle.y
+            ) {
+                return true;
+            }
+            return false;
+        }
+
+        function handleCollisions() {
+            // Player paddle collision
+            if (checkCollision(player)) {
+                ball.vx = -ball.vx;
+                ball.x = player.x + player.width + ball.size;
+
+                // Add spin based on where ball hits paddle
+                const hitPos = (ball.y - (player.y + player.height / 2)) / (player.height / 2);
+                ball.vy += hitPos * 4;
+
+                // Increase speed slightly
+                const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+                const maxSpeed = MAX_BALL_SPEED * getSpeedMultiplier();
+                if (speed < maxSpeed) {
+                    const factor = (speed + 0.5) / speed;
+                    ball.vx *= factor;
+                    ball.vy *= factor;
+                }
+            }
+
+            // AI paddle collision
+            if (checkCollision(ai)) {
+                ball.vx = -ball.vx;
+                ball.x = ai.x - ball.size;
+
+                // Add spin based on where ball hits paddle
+                const hitPos = (ball.y - (ai.y + ai.height / 2)) / (ai.height / 2);
+                ball.vy += hitPos * 4;
+
+                // Increase speed slightly
+                const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+                const maxSpeed = MAX_BALL_SPEED * getSpeedMultiplier();
+                if (speed < maxSpeed) {
+                    const factor = (speed + 0.5) / speed;
+                    ball.vx *= factor;
+                    ball.vy *= factor;
+                }
+            }
+
+            // Scoring
+            if (ball.x < 0) {
+                aiScore++;
+                ball.reset();
+            } else if (ball.x > canvas.width) {
+                playerScore++;
+                ball.reset();
+            }
+
+            // Check win condition
+            if (!isDemoMode && (playerScore >= WIN_SCORE || aiScore >= WIN_SCORE)) {
+                gameRunning = false;
+                gameWon = true;
+                showGameOver();
+            }
+        }
+
+        function drawCenterLine() {
+            ctx.strokeStyle = 'rgba(0, 255, 136, 0.3)';
+            ctx.setLineDash([10, 10]);
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        function drawScore() {
+            ctx.fillStyle = '#00ff88';
+            ctx.font = 'bold 48px Arial';
+            ctx.textAlign = 'center';
+
+            // Player score
+            ctx.fillText(playerScore, canvas.width / 4, 60);
+
+            // AI/Player 2 score
+            ctx.fillText(aiScore, (canvas.width * 3) / 4, 60);
+
+            // Labels
+            ctx.font = '16px Arial';
+            if (isDemoMode) {
+                ctx.fillText('IA 1', canvas.width / 4, 90);
+                ctx.fillText('IA 2', (canvas.width * 3) / 4, 90);
+            } else if (isPvPMode) {
+                ctx.fillText('JOUEUR 1', canvas.width / 4, 90);
+                ctx.fillText('JOUEUR 2', (canvas.width * 3) / 4, 90);
+            } else {
+                ctx.fillText('YOU', canvas.width / 4, 90);
+                ctx.fillText('AI', (canvas.width * 3) / 4, 90);
+                // Display difficulty level for AI mode
+                const difficultyNames = ['', 'Facile', 'Moyen', 'Difficile', 'Imbattable'];
+                ctx.fillStyle = '#ff006e';
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'right';
+                ctx.fillText('Difficulté: ' + difficultyNames[aiDifficulty], canvas.width - 20, 30);
+                ctx.textAlign = 'center';
+            }
+        }
+
+        function update() {
+            if (!gameRunning || gamePaused) return;
+
+            if (isDemoMode) {
+                // Demo mode: both paddles controlled by AI
+                updatePlayerAsAI();
+                updateAIInput();
+            } else if (isPvPMode) {
+                // PvP mode: player controls left, player 2 controls right
+                updatePlayerInput();
+                updatePlayer2Input();
+            } else {
+                // Vs AI mode: player controls left, AI controls right
+                updatePlayerInput();
+                updateAIInput();
+            }
+
+            player.update();
+            ai.update();
+            ball.update();
+            handleCollisions();
+        }
+
+        function draw() {
+            // Clear canvas with gradient
+            const bgGradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            bgGradient.addColorStop(0, '#0f0f1e');
+            bgGradient.addColorStop(1, '#1a0f3e');
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw game elements
+            drawCenterLine();
+            player.draw();
+            ai.draw();
+            ball.draw();
+            drawScore();
+
+            // Draw demo mode label
+            if (isDemoMode) {
+                ctx.fillStyle = '#ff006e';
+                ctx.font = 'bold 18px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('🤖 MODE DEMO 🤖', canvas.width / 2, canvas.height - 30);
+            }
+        }
+
+        function showPauseMenu() {
+            overlay.classList.remove('hidden');
+            overlayContent.innerHTML = `
+                <h1>⏸ PAUSE ⏸</h1>
+                <p style="margin-bottom: 30px; color: #aaa;">Le jeu est en pause</p>
+                <button id="resumeBtn" style="display: block; width: 200px; margin: 15px auto;">REPRENDRE</button>
+                <button id="menuBtn" style="display: block; width: 200px; margin: 15px auto;">MENU PRINCIPAL</button>
+            `;
+            document.getElementById('resumeBtn').addEventListener('click', togglePause);
+            document.getElementById('menuBtn').addEventListener('click', () => {
+                gamePaused = false;
+                gameRunning = false;
+                gameWon = false;
+                restartGame();
+            });
+        }
+
+        function togglePause() {
+            if (gameMode === 'playing') {
+                gamePaused = !gamePaused;
+                if (gamePaused) {
+                    showPauseMenu();
+                } else {
+                    overlay.classList.add('hidden');
+                }
+            }
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function showStartScreen(mode) {
+            gameMode = mode;
+            overlay.classList.remove('hidden');
+
+            let modeText = '';
+            let controlsText = '';
+
+            if (isDemoMode) {
+                modeText = 'Mode Demo - Deux IA se battent!';
+                controlsText = '<p style="color: #888; margin-top: 20px;">Spectateur... Appuie sur Menu pour revenir</p>';
+            } else if (isPvPMode) {
+                modeText = 'Mode 2 joueurs';
+                controlsText = '<p style="color: #888; margin-top: 10px;">Joueur 1 (gauche): E et X</p><p style="color: #888;">Joueur 2 (droite): Flèches ↑ et ↓</p>';
+            } else {
+                modeText = 'Joue contre l\'IA';
+                controlsText = '<p style="color: #888; margin-top: 20px;">Utilise E et X pour contrôler ta raquette</p>';
+            }
+
+            let scoreText = '';
+            if (isDemoMode) {
+                scoreText = '<p style="color: #888;">Pas de limite de score...</p>';
+            } else {
+                scoreText = `<p>Premier à ${WIN_SCORE} points gagne!</p>`;
+            }
+
+            overlayContent.innerHTML = `
+                <h1>🎮 PONG 🎮</h1>
+                <p>${modeText}</p>
+                <p id="scoreDisplay"></p>
+                ${scoreText}
+                ${controlsText}
+                <button id="startBtn">COMMENCER</button>
+            `;
+            document.getElementById('startBtn').addEventListener('click', startGame);
+        }
+
+        function showGameOver() {
+            overlay.classList.remove('hidden');
+            let winner, finalScore, difficultyText = '';
+
+            if (isPvPMode) {
+                winner = playerScore >= WIN_SCORE ? '🎉 JOUEUR 1 GAGNE! 🎉' : '🎉 JOUEUR 2 GAGNE! 🎉';
+                finalScore = `Score final: Joueur 1 (${playerScore}) - Joueur 2 (${aiScore})`;
+            } else {
+                winner = playerScore >= WIN_SCORE ? '🎉 TU AS GAGNÉ! 🎉' : '💀 DÉFAITE 💀';
+                finalScore = `Score final: ${playerScore} - ${aiScore}`;
+                const difficultyNames = ['', 'Facile', 'Moyen', 'Difficile', 'Imbattable'];
+                difficultyText = `<p style="color: #aaa; font-size: 14px;">Difficulté: ${difficultyNames[aiDifficulty]}</p>`;
+            }
+
+            overlayContent.innerHTML = `
+                <h1>${winner}</h1>
+                <p>${finalScore}</p>
+                ${difficultyText}
+                <button id="restartBtn">REJOUER</button>
+            `;
+            document.getElementById('restartBtn').addEventListener('click', restartGame);
+        }
+
+        function startGame() {
+            gameRunning = true;
+            gameWon = false;
+            gameMode = 'playing';
+            overlay.classList.add('hidden');
+        }
+
+        function showModeSelection() {
+            gameMode = 'select';
+            overlay.classList.remove('hidden');
+            overlayContent.innerHTML = `
+                <h1>🎮 PONG 🎮</h1>
+                <p>Sélectionne un mode de jeu</p>
+                <button id="vsAiBtn" style="margin-right: 20px;">Jouer contre l'IA</button>
+                <button id="pvpBtn" style="margin-right: 20px;">Mode 2 joueurs</button>
+                <button id="demoBtn">🤖 Mode Demo</button>
+            `;
+
+            document.getElementById('vsAiBtn').addEventListener('click', () => {
+                isPvPMode = false;
+                showDifficultySelection();
+            });
+
+            document.getElementById('pvpBtn').addEventListener('click', () => {
+                isPvPMode = true;
+                showStartScreen('pvp');
+            });
+
+            document.getElementById('demoBtn').addEventListener('click', () => {
+                isDemoMode = true;
+                isPvPMode = false;
+                setAIDifficulty(2); // Medium difficulty for demo
+                showStartScreen('demo');
+            });
+        }
+
+        function showDifficultySelection() {
+            gameMode = 'difficulty';
+            overlay.classList.remove('hidden');
+            overlayContent.innerHTML = `
+                <h1>🎮 PONG 🎮</h1>
+                <p>Choisir un niveau de difficulté</p>
+                <button id="difficulty1Btn" class="difficulty-btn" style="display: block; width: 300px; margin: 10px auto;">1️⃣ Facile - Parfait pour débuter</button>
+                <button id="difficulty2Btn" class="difficulty-btn" style="display: block; width: 300px; margin: 10px auto;">2️⃣ Moyen - Équilibré</button>
+                <button id="difficulty3Btn" class="difficulty-btn" style="display: block; width: 300px; margin: 10px auto;">3️⃣ Difficile - Un bon défi</button>
+                <button id="difficulty4Btn" class="difficulty-btn" style="display: block; width: 300px; margin: 10px auto;">4️⃣ Imbattable - Es-tu prêt?</button>
+            `;
+
+            document.getElementById('difficulty1Btn').addEventListener('click', () => {
+                setAIDifficulty(1);
+                showStartScreen('vsai');
+            });
+            document.getElementById('difficulty2Btn').addEventListener('click', () => {
+                setAIDifficulty(2);
+                showStartScreen('vsai');
+            });
+            document.getElementById('difficulty3Btn').addEventListener('click', () => {
+                setAIDifficulty(3);
+                showStartScreen('vsai');
+            });
+            document.getElementById('difficulty4Btn').addEventListener('click', () => {
+                setAIDifficulty(4);
+                showStartScreen('vsai');
+            });
+        }
+
+        function restartGame() {
+            playerScore = 0;
+            aiScore = 0;
+            ball.reset();
+            player.y = canvas.height / 2 - PADDLE_HEIGHT / 2;
+            ai.y = canvas.height / 2 - PADDLE_HEIGHT / 2;
+            gameWon = false;
+            isDemoMode = false;
+            isPvPMode = false;
+            showModeSelection();
+        }
+
+        // Start the game
+        setAIDifficulty(2); // Initialize default difficulty (Medium)
+        showModeSelection();
+        gameLoop();
+    </script>
+</body>
+</html>
